@@ -3,6 +3,8 @@ package com.vdurmont.emoji;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -21,7 +23,7 @@ public class EmojiManager {
   private static final Map<String, Set<Emoji>> EMOJIS_BY_TAG =
     new HashMap<String, Set<Emoji>>();
   private static final List<Emoji> ALL_EMOJIS;
-  private static final EmojiTrie EMOJI_TRIE;
+  static final EmojiTrie EMOJI_TRIE;
 
   static {
     try {
@@ -41,6 +43,11 @@ public class EmojiManager {
       }
 
       EMOJI_TRIE = new EmojiTrie(emojis);
+      Collections.sort(ALL_EMOJIS, new Comparator<Emoji>() {
+        public int compare(Emoji e1, Emoji e2) {
+          return e2.getUnicode().length() - e1.getUnicode().length();
+        }
+      });
       stream.close();
     } catch (IOException e) {
       throw new RuntimeException(e);
@@ -76,21 +83,17 @@ public class EmojiManager {
    * is unknown
    */
   public static Emoji getForAlias(String alias) {
-    if (alias == null) {
+    if (alias == null || alias.isEmpty()) {
       return null;
     }
     return EMOJIS_BY_ALIAS.get(trimAlias(alias));
   }
 
   private static String trimAlias(String alias) {
-    String result = alias;
-    if (result.startsWith(":")) {
-      result = result.substring(1, result.length());
-    }
-    if (result.endsWith(":")) {
-      result = result.substring(0, result.length() - 1);
-    }
-    return result;
+    int len = alias.length();
+    return alias.substring(
+            alias.charAt(0) == ':' ? 1 : 0,
+            alias.charAt(len - 1) == ':' ? len - 1 : len);
   }
 
 
@@ -132,6 +135,19 @@ public class EmojiManager {
     return unicodeCandidate != null &&
             unicodeCandidate.getEmojiStartIndex() == 0 &&
             unicodeCandidate.getFitzpatrickEndIndex() == string.length();
+  }
+
+  /**
+   * Tests if a given String contains an emoji.
+   *
+   * @param string the string to test
+   *
+   * @return true if the string contains an emoji's unicode, false otherwise
+   */
+  public static boolean containsEmoji(String string) {
+    if (string == null) return false;
+
+    return EmojiParser.getNextUnicodeCandidate(string.toCharArray(), 0) != null;
   }
 
   /**

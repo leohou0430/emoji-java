@@ -1,11 +1,8 @@
 package com.vdurmont.emoji;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Provides methods to parse strings with emojis.
@@ -13,8 +10,6 @@ import java.util.regex.Pattern;
  * @author Vincent DURMONT [vdurmont@gmail.com]
  */
 public class EmojiParser {
-  private static final Pattern ALIAS_CANDIDATE_PATTERN =
-    Pattern.compile("(?<=:)\\+?(\\w|\\||\\-)+(?=:)");
 
   /**
    * See {@link #parseToAliases(String, FitzpatrickAction)} with the action
@@ -116,58 +111,85 @@ public class EmojiParser {
    * their unicode.
    */
   public static String parseToUnicode(String input) {
-    // Get all the potential aliases
-    List<AliasCandidate> candidates = getAliasCandidates(input);
+    StringBuilder sb = new StringBuilder(input.length());
 
-    // Replace the aliases by their unicode
-    String result = input;
-    for (AliasCandidate candidate : candidates) {
-      Emoji emoji = EmojiManager.getForAlias(candidate.alias);
-      if (emoji != null) {
-        if (
-          emoji.supportsFitzpatrick() ||
-          (!emoji.supportsFitzpatrick() && candidate.fitzpatrick == null)
-        ) {
-          String replacement = emoji.getUnicode();
-          if (candidate.fitzpatrick != null) {
-            replacement += candidate.fitzpatrick.unicode;
-          }
-          result = result.replace(
-            ":" + candidate.fullString + ":",
-            replacement
-          );
+    for (int last = 0; last < input.length(); last++) {
+      AliasCandidate alias = getAliasAt(input, last);
+      if (alias == null) {
+          alias = getHtmlEncodedEmojiAt(input, last);
+      }
+
+      if (alias != null) {
+        sb.append(alias.emoji.getUnicode());
+        last = alias.endIndex;
+
+        if (alias.fitzpatrick != null) {
+          sb.append(alias.fitzpatrick.unicode);
         }
+      } else {
+        sb.append(input.charAt(last));
       }
     }
 
-    // Replace the html
-    for (Emoji emoji : EmojiManager.getAll()) {
-      result = result.replace(emoji.getHtmlHexadecimal(), emoji.getUnicode());
-      result = result.replace(emoji.getHtmlDecimal(), emoji.getUnicode());
-    }
-
-    return result;
+    return sb.toString();
   }
 
-  protected static List<AliasCandidate> getAliasCandidates(String input) {
-    List<AliasCandidate> candidates = new ArrayList<AliasCandidate>();
+  /** Finds the alias in the given string starting at the given point, null otherwise */
+  protected static AliasCandidate getAliasAt(String input, int start) {
+    if (input.length() < start + 2 || input.charAt(start) != ':') return null; // Aliases start with :
+    int aliasEnd = input.indexOf(':', start + 2);  // Alias must be at least 1 char in length
+    if (aliasEnd == -1) return null; // No alias end found
 
-    Matcher matcher = ALIAS_CANDIDATE_PATTERN.matcher(input);
-    matcher = matcher.useTransparentBounds(true);
-    while (matcher.find()) {
-      String match = matcher.group();
-      if (!match.contains("|")) {
-        candidates.add(new AliasCandidate(match, match, null));
-      } else {
-        String[] splitted = match.split("\\|");
-        if (splitted.length == 2 || splitted.length > 2) {
-          candidates.add(new AliasCandidate(match, splitted[0], splitted[1]));
-        } else {
-          candidates.add(new AliasCandidate(match, match, null));
-        }
-      }
+    int fitzpatrickStart = input.indexOf('|', start + 2);
+    if (fitzpatrickStart != -1 && fitzpatrickStart < aliasEnd) {
+      Emoji emoji = EmojiManager.getForAlias(input.substring(start, fitzpatrickStart));
+      if (emoji == null) return null; // Not a valid alias
+      if (!emoji.supportsFitzpatrick()) return null; // Fitzpatrick was specified, but the emoji does not support it
+      Fitzpatrick fitzpatrick = Fitzpatrick.fitzpatrickFromType(input.substring(fitzpatrickStart + 1, aliasEnd));
+      return new AliasCandidate(emoji, fitzpatrick, start, aliasEnd);
     }
-    return candidates;
+
+    Emoji emoji = EmojiManager.getForAlias(input.substring(start, aliasEnd));
+    if (emoji == null) return null; // Not a valid alias
+    return new AliasCandidate(emoji, null, start, aliasEnd);
+  }
+
+  /** Finds the HTML encoded emoji in the given string starting at the given point, null otherwise */
+  protected static AliasCandidate getHtmlEncodedEmojiAt(String input, int start) {
+    if (input.length() < start + 4 || input.charAt(start) != '&' || input.charAt(start + 1) != '#') return null;
+
+    Emoji longestEmoji = null;
+    int longestCodePointEnd = -1;
+    char[] chars = new char[EmojiManager.EMOJI_TRIE.maxDepth];
+    int charsIndex = 0;
+    int codePointStart = start;
+    do {
+      int codePointEnd = input.indexOf(';', codePointStart + 3);  // Code point must be at least 1 char in length
+      if (codePointEnd == -1) break;
+
+      try {
+        int radix = input.charAt(codePointStart + 2) == 'x' ? 16 : 10;
+        int codePoint = Integer.parseInt(input.substring(codePointStart + 2 + radix / 16, codePointEnd), radix);
+        charsIndex += Character.toChars(codePoint, chars, charsIndex);
+      } catch (NumberFormatException e) {
+        break;
+      } catch (IllegalArgumentException e) {
+        break;
+      }
+      Emoji foundEmoji = EmojiManager.EMOJI_TRIE.getEmoji(chars, 0, charsIndex);
+      if (foundEmoji != null) {
+        longestEmoji = foundEmoji;
+        longestCodePointEnd = codePointEnd;
+      }
+      codePointStart = codePointEnd + 1;
+    } while (input.length() > codePointStart + 4 &&
+            input.charAt(codePointStart) == '&' &&
+            input.charAt(codePointStart + 1) == '#' &&
+            charsIndex < chars.length &&
+            !EmojiManager.EMOJI_TRIE.isEmoji(chars, 0, charsIndex).impossibleMatch());
+
+    if (longestEmoji == null) return null;
+    return new AliasCandidate(longestEmoji, null, start, longestCodePointEnd);
   }
 
   /**
@@ -362,10 +384,10 @@ public class EmojiParser {
     EmojiTransformer transformer
   ) {
     int prev = 0;
-    StringBuilder sb = new StringBuilder();
+    StringBuilder sb = new StringBuilder(input.length());
     List<UnicodeCandidate> replacements = getUnicodeCandidates(input);
     for (UnicodeCandidate candidate : replacements) {
-      sb.append(input.substring(prev, candidate.getEmojiStartIndex()));
+      sb.append(input, prev, candidate.getEmojiStartIndex());
 
       sb.append(transformer.transform(candidate));
       prev = candidate.getFitzpatrickEndIndex();
@@ -378,7 +400,11 @@ public class EmojiParser {
     List<UnicodeCandidate> emojis = getUnicodeCandidates(input);
     List<String> result = new ArrayList<String>();
     for (UnicodeCandidate emoji : emojis) {
-      result.add(emoji.getEmoji().getUnicode());
+      if (emoji.getEmoji().supportsFitzpatrick() && emoji.hasFitzpatrick()) {
+        result.add(emoji.getEmoji().getUnicode(emoji.getFitzpatrick()));
+      } else {
+        result.add(emoji.getEmoji().getUnicode());
+      }
     }
     return result;
   }
@@ -451,11 +477,7 @@ public class EmojiParser {
   protected static int getEmojiEndPos(char[] text, int startPos) {
     int best = -1;
     for (int j = startPos + 1; j <= text.length; j++) {
-      EmojiTrie.Matches status = EmojiManager.isEmoji(Arrays.copyOfRange(
-        text,
-        startPos,
-        j
-      ));
+      EmojiTrie.Matches status = EmojiManager.EMOJI_TRIE.isEmoji(text, startPos, j);
 
       if (status.exactMatch()) {
         best = j;
@@ -514,22 +536,16 @@ public class EmojiParser {
 
 
   protected static class AliasCandidate {
-    public final String fullString;
-    public final String alias;
+    public final Emoji emoji;
     public final Fitzpatrick fitzpatrick;
+    public final int startIndex;
+    public final int endIndex;
 
-    private AliasCandidate(
-      String fullString,
-      String alias,
-      String fitzpatrickString
-    ) {
-      this.fullString = fullString;
-      this.alias = alias;
-      if (fitzpatrickString == null) {
-        this.fitzpatrick = null;
-      } else {
-        this.fitzpatrick = Fitzpatrick.fitzpatrickFromType(fitzpatrickString);
-      }
+    private AliasCandidate(Emoji emoji, Fitzpatrick fitzpatrick, int startIndex, int endIndex) {
+      this.emoji = emoji;
+      this.fitzpatrick = fitzpatrick;
+      this.startIndex = startIndex;
+      this.endIndex = endIndex;
     }
   }
 

@@ -11,6 +11,7 @@ import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 @RunWith(JUnit4.class)
 public class EmojiParserTest {
@@ -335,105 +336,71 @@ public class EmojiParserTest {
   }
 
   @Test
-  public void getAliasCanditates_with_one_alias() {
+  public void getAliasAt_with_one_alias() {
     // GIVEN
-    String str = "test :candidate: test";
+    String str = "test :boy: test";
 
     // WHEN
-    List<AliasCandidate> candidates = EmojiParser.getAliasCandidates(str);
+    AliasCandidate candidate = EmojiParser.getAliasAt(str, 5);
 
     // THEN
-    assertEquals(1, candidates.size());
-    assertEquals("candidate", candidates.get(0).alias);
-    assertNull(candidates.get(0).fitzpatrick);
+    assertTrue(candidate.emoji.getAliases().contains("boy"));
+    assertNull(candidate.fitzpatrick);
   }
 
   @Test
-  public void getAliasCanditates_with_one_alias_an_another_colon_after() {
+  public void getAliasAt_with_one_alias_an_another_colon_after() {
     // GIVEN
-    String str = "test :candidate: test:";
+    String str = "test :boy: test:";
 
     // WHEN
-    List<AliasCandidate> candidates = EmojiParser.getAliasCandidates(str);
+    AliasCandidate candidate = EmojiParser.getAliasAt(str, 5);
 
     // THEN
-    assertEquals(1, candidates.size());
-    assertEquals("candidate", candidates.get(0).alias);
-    assertNull(candidates.get(0).fitzpatrick);
+    assertTrue(candidate.emoji.getAliases().contains("boy"));
+    assertNull(candidate.fitzpatrick);
   }
 
   @Test
-  public void getAliasCanditates_with_one_alias_an_another_colon_right_after() {
+  public void getAliasAt_with_one_alias_an_another_colon_right_after() {
     // GIVEN
-    String str = "test :candidate::test";
+    String str = "test :boy::test";
 
     // WHEN
-    List<AliasCandidate> candidates = EmojiParser.getAliasCandidates(str);
+    AliasCandidate candidate = EmojiParser.getAliasAt(str, 5);
 
     // THEN
-    assertEquals(1, candidates.size());
-    assertEquals("candidate", candidates.get(0).alias);
-    assertNull(candidates.get(0).fitzpatrick);
+    assertTrue(candidate.emoji.getAliases().contains("boy"));
+    assertNull(candidate.fitzpatrick);
   }
 
   @Test
-  public void getAliasCanditates_with_one_alias_an_another_colon_before_after() {
+  public void getAliasAt_with_one_alias_an_another_colon_before_after() {
     // GIVEN
-    String str = "test ::candidate: test";
+    String str = "test ::boy: test";
 
     // WHEN
-    List<AliasCandidate> candidates = EmojiParser.getAliasCandidates(str);
+    AliasCandidate candidate = EmojiParser.getAliasAt(str, 5);
+    assertNull(candidate);
+
+    candidate = EmojiParser.getAliasAt(str, 6);
 
     // THEN
-    assertEquals(1, candidates.size());
-    assertEquals("candidate", candidates.get(0).alias);
-    assertNull(candidates.get(0).fitzpatrick);
+    assertTrue(candidate.emoji.getAliases().contains("boy"));
+    assertNull(candidate.fitzpatrick);
   }
 
   @Test
-  public void getAliasCanditates_with_two_aliases() {
+  public void getAliasAt_with_a_fitzpatrick_modifier() {
     // GIVEN
-    String str = "test :candi: :candidate: test";
+    String str = "test :boy|type_3: test";
 
     // WHEN
-    List<AliasCandidate> candidates = EmojiParser.getAliasCandidates(str);
+    AliasCandidate candidate = EmojiParser.getAliasAt(str, 5);
 
     // THEN
-    assertEquals(2, candidates.size());
-    assertEquals("candi", candidates.get(0).alias);
-    assertNull(candidates.get(0).fitzpatrick);
-    assertEquals("candidate", candidates.get(1).alias);
-    assertNull(candidates.get(1).fitzpatrick);
-  }
-
-  @Test
-  public void getAliasCanditates_with_two_aliases_sharing_a_colon() {
-    // GIVEN
-    String str = "test :candi:candidate: test";
-
-    // WHEN
-    List<AliasCandidate> candidates = EmojiParser.getAliasCandidates(str);
-
-    // THEN
-    assertEquals(2, candidates.size());
-    assertEquals("candi", candidates.get(0).alias);
-    assertNull(candidates.get(0).fitzpatrick);
-    assertEquals("candidate", candidates.get(1).alias);
-    assertNull(candidates.get(1).fitzpatrick);
-  }
-
-  @Test
-  public void getAliasCanditates_with_a_fitzpatrick_modifier() {
-    // GIVEN
-    String str = "test :candidate|type_3: test";
-
-    // WHEN
-    List<AliasCandidate> candidates = EmojiParser.getAliasCandidates(str);
-
-    // THEN
-    assertEquals(1, candidates.size());
-    assertEquals("candidate", candidates.get(0).alias);
-    assertEquals(Fitzpatrick.TYPE_3, candidates.get(0).fitzpatrick);
+    assertTrue(candidate.emoji.getAliases().contains("boy"));
+    assertEquals(Fitzpatrick.TYPE_3, candidate.fitzpatrick);
   }
 
   @Test
@@ -547,5 +514,40 @@ public class EmojiParserTest {
     assertEquals("😃", result.get(1));
     assertEquals("😉", result.get(2));
 
+  }
+
+  @Test
+  public void extractEmojis_withFitzpatrickModifiers() {
+    // GIVEN
+    final String surfer = EmojiManager.getForAlias("surfer").getUnicode();
+    final String surfer3 = EmojiManager.getForAlias("surfer").getUnicode(Fitzpatrick.TYPE_3);
+    final String surfer4 = EmojiManager.getForAlias("surfer").getUnicode(Fitzpatrick.TYPE_4);
+    final String surfer5 = EmojiManager.getForAlias("surfer").getUnicode(Fitzpatrick.TYPE_5);
+    final String surfer6 = EmojiManager.getForAlias("surfer").getUnicode(Fitzpatrick.TYPE_6);
+    final String surfers = surfer + " " + surfer3 + " " + surfer4 + " " + surfer5 + " " + surfer6;
+
+    // WHEN
+    List<String> result = EmojiParser.extractEmojis(surfers);
+
+    // THEN
+    assertEquals(5, result.size());
+    assertEquals(surfer, result.get(0));
+    assertEquals(surfer3, result.get(1));
+    assertEquals(surfer4, result.get(2));
+    assertEquals(surfer5, result.get(3));
+    assertEquals(surfer6, result.get(4));
+
+  }
+
+  @Test
+  public void parseToAliases_with_first_medal() {
+    // GIVEN
+    String str = "🥇";
+
+    // WHEN
+    String result = EmojiParser.parseToAliases(str);
+
+    // THEN
+    assertEquals(":first_place_medal:", result);
   }
 }
